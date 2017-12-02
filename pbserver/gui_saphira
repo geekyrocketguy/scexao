@@ -1,0 +1,202 @@
+#!/bin/bash
+
+DIALOG=${DIALOG=dialog}
+tempfile2=`tempfile2 2>/dev/null` || tempfile2=/tmp/test$$
+trap "rm -f $tempfile2" 0 1 2 5 15
+
+function send_light_saphira_sky(){
+    echo "Working..."
+
+    saphira_pickoff in
+    log saphira_pickoff in
+    ircam_fcs saphira
+    log ircam_fcs saphira
+    ircam_filter 1 #open
+    log ircam_filter 1 #open
+}
+
+
+function send_light_saphira_src(){
+    echo "Working..."
+
+    nps_on1 5 #turn on superK
+    src_flux irnd 6 #maximum neutral density
+    src_flux optnd 5 #maximum neutral density
+
+    saphira_pickoff in
+    ircam_fcs saphira
+    ircam_filter 1 #open
+}
+
+
+function send_light_chuckcam(){
+    echo "Working..."
+
+    saphira_pickoff out
+    log saphira_pickoff out
+    ircam_fcs chuck
+    log ircam_fcs chuck
+    ircam_filter 6 #H-band
+    log ircam_filter 6 
+
+}
+
+
+function donewitheverything(){
+    echo "Working..."
+    #nps_off1 5 #turn off superK
+    send_light_chuckcam;
+
+    tmux kill-session -t saphira
+}
+
+
+function launch_live_viewers(){
+    tmux kill-session -t saphira
+    clear
+    echo "Working..."
+
+    #create shmimview and logging windows
+    xterm -geometry 180x75 -e 'tmux new-session -s "saphira"; bash ' &
+    sleep 4
+    tmux send-keys -t saphira "tmux split-window -h" C-m #0 is top, 1 is middle, 2 is bottom
+    sleep 0.2
+    tmux send-keys -t saphira "tmux split-window" C-m
+    sleep 0.2
+    tmux send-keys -t saphira "tmux split-window" C-m
+    sleep 0.2
+    tmux select-pane -t 1
+    sleep 0.1
+    tmux send-keys -t saphira "tmux resize-pane -U 12" C-m
+    sleep 0.2
+    tmux select-pane -t 3
+    sleep 0.1
+    tmux send-keys -t saphira "tmux resize-pane -U 8" C-m
+
+    #now left side
+    tmux select-pane -t 0
+    sleep 0.1
+    tmux send-keys -t saphira "tmux split-window" C-m
+    sleep 0.2
+    tmux send-keys -t saphira "tmux resize-pane -U 5" C-m
+
+    echo "[elevator music]"
+
+    sleep 1
+
+    #PANE DESIGNATION
+    #0-1 are left side
+    # 0 shmimmon pbimage
+    # 1 shmimmon pbimagediff
+    #>1 are right side
+    # 2 logshim pbimage (saving)
+    # 3 live viewer pbimage
+    # 4 live viewer pbimagediff
+    # 5 create subtracted image (pbimagediff)
+    # 6 command prompt
+
+    
+    tmux select-pane -t 0
+    tmux send-keys -t saphira "shmimmon pbimage" C-m
+    sleep 1
+
+    #create live viewers
+    tmux select-pane -t 3
+    tmux send-keys -t saphira "saphcam &" C-m
+}
+
+
+function start_logging() {
+    tmux select-pane -t 2
+    tmux send-keys -t saphira "./logshimshielded.sh" C-m
+    sleep 2
+    tmux select-pane -t 3
+    sleep 0.1
+    tmux send-keys -t saphira "sudo cset proc -m -f saphiralog -t system" C-m
+    sleep 2
+    tmux send-keys -t saphira "$(cat notthepassword.txt)" C-m
+    pid=$( pgrep -n logshim )
+    tmux send-keys -t saphira "sudo cset proc -m -p "$pid" -t saphiralog" C-m
+    sleep 2
+
+    tmux select-pane -t 1
+    sleep 0.1
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "cset set -l" C-m
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "" C-m
+
+    tmux send-keys -t saphira "cset proc -l saphiralog" C-m
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "" C-m
+
+    tmux send-keys -t saphira "cset proc -l saphira" C-m
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "" C-m
+
+    tmux send-keys -t saphira "cset proc -l saphira2" C-m
+    tmux send-keys -t saphira "" C-m
+    tmux send-keys -t saphira "" C-m
+
+    log Logging saphira data.
+
+    tmux select-pane -t 4
+    tmux send-keys -t saphira "echo LOGGING" C-m
+}
+
+
+function stop_logging() {
+    tmux select-pane -t 4
+    #tmux send-keys -t saphira "logshimoff pbimage" C-m
+    tmux send-keys -t saphira "sudo cset proc -s saphiralog -e bash ./logshimoffshielded.sh" C-m
+    sleep 2
+    tmux send-keys -t saphira "$(cat notthepassword.txt)" C-m
+    sleep 10
+    #tmux send-keys -t saphira "logshimkill pbimage" C-m
+    tmux send-keys -t saphira "sudo cset proc -s saphiralog -e bash ./logshimkillshielded.sh" C-m
+
+    tmux select-pane -t 4
+    tmux send-keys -t saphira "echo DONE LOGGING" C-m
+    log Done logging saphira data.
+}
+
+
+
+function enditall(){
+    tmux kill-session -t saphira
+}
+
+while true
+do
+menuitems=( "1" "Send light to SAPHIRA (on sky)." )
+menuitems+=( "2" "Send light to SAPHIRA (internal source)." )
+menuitems+=( " " " " )
+menuitems+=( "3" "Launch live viewers." )
+menuitems+=( "4" "Start logging data." )
+menuitems+=( "5" "Stop logging data." )
+menuitems+=( " " " " )
+menuitems+=( "6" "Send light back to Chuckcam." )
+menuitems+=( "7" "End tmux sessions." )
+menuitems+=( "8" "Close everything, restore bench to normal operation." )
+menuitems+=( " " " " )
+
+$DIALOG --clear --title "SAPHIRA Observing GUI" \
+        --menu "Some inspiring quote or something." 20 64 25 \
+        "${menuitems[@]}" \
+        Exit "Exit to the shell" 2> $tempfile2
+menuitem=$(<$tempfile2)
+
+case $menuitem in
+    1) send_light_saphira_sky;;
+    2) send_light_saphira_src;;
+    3) launch_live_viewers;;
+    4) start_logging;;
+    5) stop_logging;;
+    6) send_light_chuckcam;;
+    7) enditall;;
+    8) donewitheverything;;
+    Exit) break;;
+esac
+ 
+done
