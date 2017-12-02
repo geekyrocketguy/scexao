@@ -1,0 +1,589 @@
+#!/bin/bash
+
+#Provides an easier way to collect SAPHIRA images using the Pizzabox 
+#controller.
+#Requires tmux and python to be installed.
+#Written Aug 2016 by Sean Goebel. sgoebel@ifa.hawaii.edu.
+
+DIALOG=${DIALOG=dialog}
+tempfile=`tempfile 2>/dev/null` || tempfile=/tmp/test$$
+trap "rm -f $tempfile" 0 1 2 5 15
+
+function restore_settings(){
+    #restore settings.txt to default values
+    printf "filename='barge'
+n_frames='100'
+reset_interval='50'
+n_col_skip='0'
+n_row_skip='0'
+n_col_read='10'
+n_row_read='256'
+read_rate='1'
+readout_mode='UTR'
+common='+01'
+save='C'
+offset_rrr='0.45'
+offset_utr='0.40'
+reset_time='100'
+mode='SCExAO'
+delay='5'" > settings.txt
+# ^Make sure all parameters are listed above, AND in the main loop below!
+
+    dialog --title "I'm here to help you." --msgbox 'Something bad happened to the stored settings file (settings.txt), so it has been reverted to its default values.' 8 40
+
+    source settings.txt #refresh
+}
+
+
+function init(){
+    tmux kill-session -t meta
+    clear
+    echo "Working..."
+
+    xterm -geometry 100x70 -e 'tmux new-session -s "meta"; bash ' &
+    sleep $delay
+    tmux send-keys -t meta "tmux split-window" C-m #0 is top, 1 is middle, 2 is bottom
+    sleep .1
+    tmux send-keys -t meta "tmux split-window" C-m
+    sleep .1
+    if [[  $mode == 'SCExAO' ]]; then
+	tmux send-keys -t meta "tmux split-window" C-m
+	sleep .1
+    fi
+    tmux send-keys -t meta "tmux select-layout even-vertical" C-m
+    sleep .1
+
+    echo "[elevator music]"
+
+
+    #BEAGLE
+    tmux select-pane -t 1 
+    tmux send-keys -t meta "printf '\033]2;%s\033\\' 'beagle'" C-m
+    tmux send-keys -t meta "ssh root@192.168.7.2" C-m #ssh to beagle
+    sleep 3
+    tmux send-keys -t meta "" C-m #no password
+    sleep 1
+    tmux send-keys -t meta "cd SCEXAO" C-m
+    sleep 0.3
+    tmux send-keys -t meta "./beagleinit.sh" C-m
+    sleep 2
+    tmux send-keys -t meta "./arrayinit.R3.sh" C-m
+    sleep 28
+    tmux send-keys -t meta "./BIASES/common-"$common".sh" C-m
+    sleep 1
+
+
+    #PBSERVER
+    tmux select-pane -t 0
+    sleep 0.1
+    tmux send-keys -t meta "printf '\033]2;%s\033\\' 'pbserver'" C-m
+    if [[  $mode == 'SCExAO' ]]; then
+	#if the password file doesn't exist
+	if [ ! -f notthepassword.txt ]; then 
+	    tmux kill-session -t meta
+
+	    echo "nottthepassword.txt doesn't exist!"
+	    echo "Please create this file!"
+	    break
+	fi
+	
+	tmux send-keys -t meta "./pbserver.sh" C-m
+	sleep 2
+	tmux send-keys -t meta "$(cat notthepassword.txt)" C-m
+	sleep 2
+
+	tmux select-pane -t 3
+	sleep 0.1
+	tid=$(python find_tid.py "$(grep ' read' pbserver_threads.txt | tail -n1)") 
+	tmux send-keys -t meta "./pbserver2.sh "$tid C-m
+	sleep 2
+	tmux send-keys -t meta "$(cat notthepassword.txt)" C-m
+	sleep 3
+    else
+	tmux send-keys -t meta "./pbserver" C-m
+	sleep 2
+    fi
+
+
+    #TELNET
+    tmux select-pane -t 2
+    tmux send-keys -t meta "printf '\033]2;%s\033\\' 'telnet'" C-m
+    tmux send-keys -t meta "telnet localhost 8000" C-m
+    sleep 1
+
+    if [[  $mode == 'SCExAO' ]]; then
+	tmux select-pane -t 3
+	sleep 0.1
+	tmux kill-pane
+	tmux select-layout -t meta even-vertical
+    fi
+    tmux select-pane -t 1
+
+    #is the filename already in use? Avoid unnecessary crashes
+    if ls $filename-*fits 1> /dev/null 2>&1 && [ "$save" != "N" ]; then
+	#filename2=$filename'1' #append a 1
+	sed -i -e "s/filename='"$filename"'/filename='"$filename"1'/g" settings.txt
+	source settings.txt
+    fi
+
+}
+
+function guisettings(){
+    $DIALOG --menu "Here are some options for you." 10 40 3 \
+    "Mode:" $mode  \
+    "Initialization Delay" $delay \
+    "Fix TMUX Bug" "" 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+
+    if [[ $(cat $tempfile) == 'Mode:' ]]; then
+	$DIALOG --menu "Choose mode." 10 40 3 \
+		"SCExAO" ""  \
+		"Hilo" "" \
+		"ROBO-AO" "" 2> $tempfile
+
+	sed -i -e "s/mode='"$mode"'/mode='"$(cat $tempfile)"'/g" settings.txt
+	
+	#Did the user hit cancel? If so then return.
+	return_value=$?
+	case $return_value in
+	    1)return;;
+	esac
+
+	
+    elif [[ $(cat $tempfile) == 'Fix TMUX Bug' ]]; then
+	#Sometimes, when gui_saphira is also running, gui_pizzabox
+	# loses the ability to switch panes. This exits the beagle
+	# connection in pane #1, # sends "stop" to pane #2 (telnet),
+	# and then re-logs in to pane #1.
+
+	#this command does nothing, and is the bug we're fixing
+	tmux select-pane -t 1
+
+	tmux send-keys -t meta "exit" C-m
+	sleep 0.2
+	tmux send-keys -t meta "tmux select-pane -t 2" C-m
+	sleep 0.2
+	tmux send-keys -t meta "stop" C-m
+	sleep 7
+	tmux select-pane -t 1
+	sleep 1
+	tmux send-keys -t meta "ssh root@192.168.7.2" C-m #ssh to beagle
+	sleep 3
+	tmux send-keys -t meta "" C-m #no password
+	sleep 1
+	tmux send-keys -t meta "cd SCEXAO" C-m
+    else
+	#user selected the initialization delay
+	change_value $"delay"
+    fi
+    source settings.txt #update stored values
+}
+
+function enditall(){
+    tmux kill-session -t meta
+}
+
+function collect_images(){
+    #Check for improper settings.
+    if [[ $(($n_col_skip + $n_col_read)) -gt 10 ]]; then
+	dialog --title "Improper settings." --msgbox "You're asking to read out too many columns. Please fix this." 8 40
+        return
+    fi
+
+    if [[ $(($n_row_skip + $n_row_read)) -gt 320 ]]; then
+	dialog --title "Improper settings." --msgbox "You're asking to read out too many rows. Please fix this." 8 40
+        return
+    fi
+
+    tmux select-pane -t 1
+    #sleep 0.1
+    tmux send-keys -t meta "./FPGAPROG/FPGARESET" C-m
+    sleep 6 #don't think this is actually needed
+    tmux send-keys -t meta "./usbreset.sh" C-m
+    sleep 2 #don't think this is actually needed
+
+    tmux select-pane -t 2
+    com="go --fname "$filename" -n "$n_frames" -r "$n_row_read" -c "$n_col_read
+    if [[ $save == 'C' ]]; then #append cube flag
+	com=$com' --cube'
+    fi
+    if [[ $save == 'N' ]]; then #append nosave flag
+	com=$com' --stream --nosave'
+    fi
+    if [[ $readout_mode == 'RRR' ]]; then #append read-reset-read flag
+	com=$com' --rdrstrd'
+    fi
+
+    tmux send-keys -t meta "$com" C-m
+
+    #convert readout mode to 1 or 0
+    if [[ $readout_mode == 'UTR' ]]; then
+        rm=0
+    else
+        rm=1
+	ramps=$n_frames
+	reset_interval=0
+    fi
+    
+    if [[ $save == 'N' ]]; then
+	com2='./go-forever.sh'
+    else
+	com2='./go.sh'
+    fi
+
+    if [[ $readout_mode == 'RR' ]]; then
+	if [[ $save == 'N' ]]; then
+	    com2='./go-rdrst-forever.sh'
+	else
+	    com2='./go-rdrst.sh'
+	fi
+    fi
+
+
+    echo $com2' '$rm' '$reset_interval' '$n_col_skip' '$n_row_skip' '$n_col_read' '$n_row_read' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9))")' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9*0.85))")' '$ramps' '$reset_time > screwhiddenchars.txt
+
+    tmux select-pane -t 1
+
+    tmux send-keys -t meta "$(cat screwhiddenchars.txt)" C-m
+
+    echo $(date) >> gui_commands.txt
+    echo $com >> gui_commands.txt
+    echo $(cat screwhiddenchars.txt) >> gui_commands.txt
+
+    sleep 8
+}
+
+function view_image() {
+    ds9 $(ls *.fits -t | head -n1) &
+}
+
+function change_offset() {
+    if [[ $readout_mode == 'UTR' ]]; then
+        offset=$offset_utr
+    else
+        offset=$offset_rrr
+    fi
+  
+    $DIALOG --menu "Change offset. Presently "$offset 13 40 8 \
+        "+0.10"  "Increase the ADUs" \
+        "+0.05"  "Increase the ADUs" \
+        "+0.01"  "Increase the ADUs" \
+        "-0.01"  "Decrease the ADUs" \
+        "-0.05"  "Decrease the ADUs" \
+        "-0.10"  "Decrease the ADUs" 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+
+    new_offset=0$(echo 'scale=2;'$offset$(cat $tempfile) | bc)
+
+    tmux select-pane -t 1
+
+    if [[ $readout_mode == 'UTR' ]]; then
+	sed -i -e "s/offset_utr='"$offset_utr"'/offset_utr='"$new_offset"'/g" settings.txt
+	tmux send-keys -t meta "sed -ie 's/voltage_value = ..../voltage_value = "$new_offset"/g' ~/SCEXAO/OFFSETS/saphira_offsets.py" C-m #.... indicates 4 wildcard characters. Who knew?
+	tmux send-keys -t meta "python ~/SCEXAO/OFFSETS/saphira_offsets.py" C-m
+
+    else
+	sed -i -e "s/offset_rrr='"$offset_rrr"'/offset_rrr='"$new_offset"'/g" settings.txt
+	tmux send-keys -t meta "sed -ie 's/voltage_value = ..../voltage_value = "$new_offset"/g' ~/SCEXAO/OFFSETS/saphira_offsets_rdrstrd.py" C-m #.... indicates 4 wildcard characters. Who knew?
+	tmux send-keys -t meta "python ~/SCEXAO/OFFSETS/saphira_offsets_rdrstrd.py" C-m
+    fi
+
+    if [[  $mode == 'SCExAO' ]]; then
+	log SAPHIRA offset changed to $new_offset.
+    fi
+
+    source settings.txt
+}
+
+
+function view_cds() {
+    dialog --inputbox "Input CDS frame numbers separated by a space." 8 40 2> $tempfile
+    
+    #DECOMMENT THIS LINE FOR USE ON COMPUTERS OTHER THAN SCEXAO
+    #ur_setup
+
+    python cds.py $(ls *.fits -t | head -n1) $(cat $tempfile)
+   # python rfi_nocamera.py $(ls *.fits -t | head -n1) $(cat $tempfile)
+}
+
+
+function change_value {
+    #the parameter to change should be passed to this function.
+    # $1 indicates the first variable passed to this
+    dialog --inputbox "Input "$1":" 8 40 2> $tempfile
+
+    #how did i get here i am not good at computer
+    sed -i -e "s/"$1"='"$(eval echo \$$1)"/"$1"='"$(cat $tempfile)'/g' settings.txt
+
+    source settings.txt #update stored values
+}
+
+
+function change_readout_mode {
+$DIALOG --menu "Select readout mode." 10 40 3 \
+        "UTR"  "Up the ramp" \
+        "RR"  "Read reset" \
+        "RRR"  "Read reset read" 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+    
+    sed -i -e "s/"$readout_mode"/"$(cat $tempfile)'/g' settings.txt
+    source settings.txt
+
+    if [[ $readout_mode == 'UTR' ]]; then
+        echo '50' > $tempfile
+    else
+        echo '0' > $tempfile
+    fi
+    sed -i -e s/"reset_interval='"$reset_interval/"reset_interval='"$(cat $tempfile)/g settings.txt
+    source settings.txt #update stored values
+}
+
+
+function change_save {
+$DIALOG --menu "How would you like to save the fits files?" 12 40 4 \
+    "C"  "Save as cube." \
+    "F"  "Save a bajillion files." \
+    "N"  "Don't save images. Stream to shared memory." 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+
+    sed -i -e "s/save='"$save"/save='"$(cat $tempfile)'/g' settings.txt
+
+    source settings.txt #update stored values
+}
+
+
+function quick_settings {
+$DIALOG --menu "Choose mode." 10 40 3 \
+    "64x64" ""  \
+    "128x128" ""  \
+    "320x256" "" 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+
+    if [[ $(cat $tempfile) == '128x128' ]]; then
+	sed -i -e "s/n_col_skip='"$n_col_skip"'/n_col_skip='5'/g" settings.txt
+	sed -i -e "s/n_row_skip='"$n_row_skip"'/n_row_skip='60'/g" settings.txt
+	sed -i -e "s/n_col_read='"$n_col_read"'/n_col_read='4'/g" settings.txt
+	sed -i -e "s/n_row_read='"$n_row_read"'/n_row_read='128'/g" settings.txt
+
+	sed -i -e "s/reset_time='"$reset_time"'/reset_time='10'/g" settings.txt
+
+	new_offset_rrr=0$(echo 'scale=2;'$offset_rrr +0.05 | bc)
+	new_offset_utr=0$(echo 'scale=2;'$offset_utr +0.05 | bc)
+
+    elif [[ $(cat $tempfile) == '64x64' ]]; then
+	sed -i -e "s/n_col_skip='"$n_col_skip"'/n_col_skip='6'/g" settings.txt
+	sed -i -e "s/n_row_skip='"$n_row_skip"'/n_row_skip='87'/g" settings.txt
+	sed -i -e "s/n_col_read='"$n_col_read"'/n_col_read='2'/g" settings.txt
+	sed -i -e "s/n_row_read='"$n_row_read"'/n_row_read='64'/g" settings.txt
+
+	sed -i -e "s/reset_time='"$reset_time"'/reset_time='10'/g" settings.txt
+
+	new_offset_rrr=0$(echo 'scale=2;'$offset_rrr +0.02 | bc)
+	new_offset_utr=0$(echo 'scale=2;'$offset_utr +0.02 | bc)
+
+    else
+	sed -i -e "s/n_col_skip='"$n_col_skip"'/n_col_skip='0'/g" settings.txt
+	sed -i -e "s/n_row_skip='"$n_row_skip"'/n_row_skip='0'/g" settings.txt
+	sed -i -e "s/n_col_read='"$n_col_read"'/n_col_read='10'/g" settings.txt
+	sed -i -e "s/n_row_read='"$n_row_read"'/n_row_read='256'/g" settings.txt
+
+	sed -i -e "s/reset_time='"$reset_time"'/reset_time='100'/g" settings.txt
+
+	new_offset_rrr=0$(echo 'scale=2;'$offset_rrr -0.05 | bc)
+	new_offset_utr=0$(echo 'scale=2;'$offset_utr -0.05 | bc)
+    fi
+
+    sed -i -e "s/offset_utr='"$offset_utr"'/offset_utr='"$new_offset_utr"'/g" settings.txt
+    sed -i -e "s/offset_rrr='"$offset_rrr"'/offset_rrr='"$new_offset_rrr"'/g" settings.txt
+
+    tmux select-pane -t 1
+    tmux send-keys -t meta "sed -ie 's/voltage_value = ..../voltage_value = "$new_offset_rrr"/g' ~/SCEXAO/OFFSETS/saphira_offsets_rdrstrd.py" C-m #.... indicates 4 wildcard characters. Who knew?
+    sleep 0.1
+    tmux send-keys -t meta "sed -ie 's/voltage_value = ..../voltage_value = "$new_offset_utr"/g' ~/SCEXAO/OFFSETS/saphira_offsets.py" C-m #.... indicates 4 wildcard characters. Who knew?
+
+    if [[ $readout_mode == 'UTR' ]]; then
+	tmux send-keys -t meta "python ~/SCEXAO/OFFSETS/saphira_offsets.py" C-m
+    else
+	tmux send-keys -t meta "python ~/SCEXAO/OFFSETS/saphira_offsets_rdrstrd.py" C-m
+    fi
+
+    if [[  $mode == 'SCExAO' ]]; then
+	if [[ $readout_mode == 'UTR' ]]; then
+	    log SAPHIRA offset changed to $new_offset_utr.
+	else
+	    log SAPHIRA offset changed to $new_offset_rrr.
+	fi
+    fi
+
+    source settings.txt #update stored values
+}
+
+
+function stop_streaming {
+    tmux select-pane -t 1 #select beagle
+    sleep 0.1
+    tmux send-keys -t meta "./stop.sh" C-m
+    sleep 1
+    tmux send-keys -t meta "./done.sh" C-m
+    sleep 5
+    tmux select-pane -t 1
+    tmux send-keys -t meta "./usbreset.sh" C-m
+    sleep 2
+    tmux select-pane -t 2
+    tmux send-keys -t meta "stop" C-m
+    sleep 0.5
+    tmux select-pane -t 1
+}
+
+function change_common {
+$DIALOG --menu "Select common voltage. \n Bias = PRV - common" 23 40 15 \
+        "+03.58"  "V" \
+        "+02"  "V" \
+        "+01"  "V" \
+        "+00"  "V" \
+        "-01"  "V" \
+        "-02"  "V" \
+        "-03"  "V" \
+        "-04"  "V" \
+        "-05"  "V" \
+        "-06"  "V" \
+        "-07"  "V" \
+        "-08"  "V" \
+        "-09"  "V" \
+        "-10"  "V" \
+        "-11"  "V" \
+        "-12"  "V" \
+        "-13"  "V" \
+        "-14"  "V" \
+        "-15"  "V" 2> $tempfile
+
+    #Did the user hit cancel? If so then return.
+    return_value=$?
+    case $return_value in
+    1)return;;
+    esac
+
+    sed -i -e "s/common='"$common"/common='"$(cat $tempfile)"/g" settings.txt
+    source settings.txt #update stored values
+    
+    tmux select-pane -t 1 #select beagle
+    sleep 0.1
+    tmux send-keys -t meta "./BIASES/common-"$common".sh" C-m
+
+    if [[  $mode == 'SCExAO' ]]; then
+	log SAPHIRA common set to $common V.
+    fi
+}
+
+while true
+do
+
+#see if settings.txt exists
+if [ ! -f settings.txt ]; then #if the file doesn't exist
+    restore_settings;
+else
+    source settings.txt #update stored values
+fi
+
+#check to make sure each stored setting exists (file likes to get corrupted)
+#if [-z ${readout_mode+x} ]; then #if variable doesn't exist
+#    restore_settings; 
+#else
+if [[ $filename == '' ]] ||
+    [[ $n_frames == '' ]] ||
+    [[ $reset_interval == '' ]] ||
+    [[ $n_col_skip == '' ]] ||
+    [[ $n_row_skip == '' ]] ||
+    [[ $n_col_read == '' ]] ||
+    [[ $n_row_read == '' ]] ||
+    [[ $read_rate == '' ]] ||
+    [[ $readout_mode == '' ]] ||
+    [[ $offset_rrr == '' ]] ||
+    [[ $offset_utr == '' ]] ||
+    [[ $common == '' ]] ||
+    [[ $reset_time == '' ]]; then #if variable is empty string
+    restore_settings;
+fi
+menuitems=( "1" "Initialize terminals." )
+menuitems+=( "2" "Collect image." )
+menuitems+=( "3" "View most recent image (DS9)." )
+menuitems+=( "4" "View most recent image (CDS)." )
+menuitems+=( "5" "End image streaming." )
+menuitems+=( "6" "End tmux sessions." )
+menuitems+=( " " " " )
+menuitems+=( "7" "GUI Settings" )
+menuitems+=( " " " " )
+menuitems+=( "Filename" $filename )
+menuitems+=( "N_Frames" $n_frames )
+menuitems+=( "Reset_Interval" $reset_interval )
+menuitems+=( "N_Col_Skip" $n_col_skip )
+menuitems+=( "N_Row_Skip" $n_row_skip )
+menuitems+=( "N_Col_Read" $n_col_read )
+menuitems+=( "N_Row_Read" $n_row_read )
+menuitems+=( "Read_Rate_(MHz)" $read_rate )
+menuitems+=( "Readout_Mode" $readout_mode )
+menuitems+=( "Common_(V)" $common )
+menuitems+=( "Save" $save )
+menuitems+=( "Reset_Time_(*10ns)" $reset_time)
+menuitems+=( "Change_Offset" "")
+menuitems+=( "Quick_Settings" "")
+menuitems+=( " " " " )
+
+$DIALOG --clear --title "Pizzabox Controller GUI" \
+        --menu "Some inspiring quote or something." 32 55 27 \
+        "${menuitems[@]}" \
+        Exit "Exit to the shell" 2> $tempfile
+menuitem=$(<$tempfile)
+
+case $menuitem in
+    1) init;;
+    2) collect_images;;
+    3) view_image;;
+    4) view_cds;;
+    5) stop_streaming;;
+    6) enditall;;
+    7) guisettings;;
+    Filename) change_value $"filename";;
+    N_Frames) change_value $"n_frames";;
+    Reset_Interval) change_value $"reset_interval";;
+    N_Col_Skip) change_value $"n_col_skip";;
+    N_Row_Skip) change_value $"n_row_skip";;
+    N_Col_Read) change_value $"n_col_read";;
+    N_Row_Read) change_value $"n_row_read";;
+    #For some reason MHz can be a separate word?
+    Read_Rate_\(MHz\)) change_value $"read_rate";; 
+    Readout_Mode) change_readout_mode;;
+    Common_\(V\)) change_common;;
+    Save) change_save;;
+    Reset_Time_\(*10ns\)) change_value $"reset_time";;
+    Change_Offset) change_offset;;
+    Quick_Settings) quick_settings;;
+    Exit) break;;
+esac
+ 
+done
