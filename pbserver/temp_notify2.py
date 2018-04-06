@@ -72,7 +72,7 @@ else: #if the user has not been emailed
         #send email
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
-        server.login('scexaonotifier@gmail.com', 'swissplanet')
+        server.login('scexaonotifier@gmail.com', '')
         msg = "The SAPHIRA temperatures are\n"+ \
               " A: " + str(A[0]) + " B: " + str(B[0]) + " C: " + str(C[0]) + " D: " + str(D[0])+'\n'+\
               "Thought you might want to know. Sorry about this news.\n\n"\
