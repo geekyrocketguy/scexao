@@ -60,7 +60,7 @@ function init(){
     tmux select-pane -t 1 
     tmux send-keys -t meta "printf '\033]2;%s\033\\' 'beagle'" C-m
     tmux send-keys -t meta "ssh root@192.168.7.2" C-m #ssh to beagle
-    sleep 3
+    sleep 5
     tmux send-keys -t meta "" C-m #no password
     sleep 1
     tmux send-keys -t meta "cd SCEXAO" C-m
@@ -245,7 +245,7 @@ function collect_images(){
     fi
 
 
-    echo $com2' '$rm' '$reset_interval' '$n_col_skip' '$n_row_skip' '$n_col_read' '$n_row_read' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9))")' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9*0.85))")' '$ramps' '$reset_time > screwhiddenchars.txt
+    echo $com2' '$rm' '$reset_interval' '$n_col_skip' '$n_row_skip' '$n_col_read' '$n_row_read' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9))")' '$(python -c "print(int(1.e-6/"$read_rate"/10.e-9-15))")' '$ramps' '$reset_time > screwhiddenchars.txt
 
     tmux select-pane -t 1
 
