@@ -54,7 +54,7 @@ if (pagecontents != oldcontents) or ('test' in args): #has something changed? Th
         #send email saying the detector is cooled again and ready to use
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
-        server.login('scexaonotifier@gmail.com', 'swissplanet')
+        server.login('scexaonotifier@gmail.com', '')
 
         if 'test' in args:
             msg = 'THIS IS A TEST\n\n'
