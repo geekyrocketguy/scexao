@@ -34,6 +34,12 @@ junk=saph.write("KRDG? D\r\n")
 D=saph.readlines()
 saph.close() #close serial connection
 
+#UPDATE 4 11 2018
+#B = [A[1]]
+#C = [A[2]]
+#D = [A[4]]
+#A = [A[0]]
+
 if not os.path.isfile('emailed.txt'): #if someone deleted the file, recreate it
     f=open('emailed.txt', 'w')
     f.write('0')

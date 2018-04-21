@@ -9,6 +9,46 @@ def makeplot():
 
     dir = '/home/scexao/pizzabox/SCExAO/pbserver.main/saphcamdarks/'
 
+    files = [
+        '20170909225111_320_256.fits',
+        '20170909230014_320_256.fits',
+        '20170909231028_320_256.fits',
+        '20170909232037_320_256.fits',
+        '20170909233051_320_256.fits',
+        '20170909234102_320_256.fits',
+        '20170909235114_320_256.fits',
+        '20170910000125_320_256.fits',
+        '20170910001136_320_256.fits',
+        '20170910002147_320_256.fits',
+        '20170910003159_320_256.fits',
+        '20170910004211_320_256.fits',
+        '20170910005222_320_256.fits',
+        '20170910010234_320_256.fits',
+        '20170910011244_320_256.fits',
+        '20170910012257_320_256.fits',
+        '20170910013306_320_256.fits',
+        '20170910014319_320_256.fits',
+        '20170910015328_320_256.fits',
+        '20170910020342_320_256.fits',
+        '20170910021353_320_256.fits',
+        '20170910022404_320_256.fits',
+        '20170910023414_320_256.fits',
+        '20170910024425_320_256.fits',
+        '20170910025434_320_256.fits',
+        '20170910030443_320_256.fits',
+        '20170910031456_320_256.fits',
+        '20170910032509_320_256.fits',
+        '20170910033521_320_256.fits',
+        '20170910034529_320_256.fits',
+        '20170910035539_320_256.fits',
+        '20170910040550_320_256.fits',
+        '20170910041602_320_256.fits',
+        '20170910042613_320_256.fits',
+        '20170910043622_320_256.fits',
+        '20170910044631_320_256.fits',
+        '20170910045641_320_256.fits',
+        '20170910050652_320_256.fits']
+
     junk = '''
     files = [
         '20170909225111_320_256.fits',
@@ -90,7 +130,6 @@ def makeplot():
         '20170910114409_320_256.fits',
         '20170910115420_320_256.fits',
         '20170910120432_320_256.fits']
-    '''
 
     files = ['20170910121755_128_128.fits',
              '20170910122758_128_128.fits',
@@ -124,6 +163,7 @@ def makeplot():
              '20170910170913_128_128.fits',
              '20170910171915_128_128.fits',
              '20170910172918_128_128.fits']
+    '''
 
     xaxis = (np.arange(len(files)-1)*10.+10.)/60.
 
@@ -136,31 +176,42 @@ def makeplot():
 
         stddevs[i] = np.std(cds, ddof=1)
 
-        if 1:
-            #if (i<10) | (i%20==0) | ( (stddevs[i] > 6.9) & (i>20) ):
-            if 1:
-                mymax = np.sort(cds.flatten())[np.size(cds)*0.999]
-                mymin = np.sort(cds.flatten())[np.size(cds)*0.001]
-                #print vmin, vmax
-                #pdb.set_trace()
-                plt.imshow(cds, interpolation='none', vmin=mymin, vmax=mymax)
-                plt.colorbar()
-                title = files[i+1][8:10]  + ':' + \
-                        files[i+1][10:12] + ':' + \
-                        files[i+1][12:14] + ' - ' + \
-                        files[i][8:10]  + ':' + \
-                        files[i][10:12] + ':' + \
-                        files[i][12:14] 
-                plt.title(title+ ', stddev=' + str(stddevs[i])[:4])
-                #plt.show()
-                plt.savefig(title.replace(' ', '') +'.png', bbox_inches='tight')
-                plt.close()
+        #if (i<10) | (i%20==0) | ( (stddevs[i] > 6.9) & (i>20) ):
+        #if 1:
+        if i==14:#5:
+            mymax = np.sort(cds.flatten())[np.size(cds)*0.999]
+            mymin = np.sort(cds.flatten())[np.size(cds)*0.001]
+            #print vmin, vmax
+            #pdb.set_trace()
+            plt.imshow(cds, interpolation='none', vmin=mymin, vmax=mymax)
+            plt.colorbar(shrink=0.8)
+            title = files[i+1][8:10]  + ':' + \
+                    files[i+1][10:12] + ':' + \
+                    files[i+1][12:14] + ' - ' + \
+                    files[i][8:10]  + ':' + \
+                    files[i][10:12] + ':' + \
+                    files[i][12:14] 
+            title = 'Difference between frames collected 10 minutes \n apart after 2.5 hours of readouts'
 
-                pyfits.writeto(title.replace(' ', '') + '.fits', cds, clobber=True)
+            plt.title(title+ ', stddev=' + str(stddevs[i])[:4]+' ADU', \
+                      fontsize=20)
+            #plt.tight_layout()
+            #plt.show()
+            plt.savefig('../figures/settling_2.5hr.png', bbox_inches='tight')
+            plt.close()
+            
+            #pyfits.writeto(title.replace(' ', '') + '.fits', cds, clobber=True)
 
 
     plt.plot(xaxis, stddevs, 'o')
-    plt.title('SAPHIRA Settling')
-    plt.xlabel('Time Since Image Readout Began (Hours)')
-    plt.ylabel('Standard Deviation (ADU)')
+    #indicate the two points used for images
+    plt.plot(xaxis[14], stddevs[14], 'ro')
+    plt.plot(xaxis[5], stddevs[5], 'ro')
+
+    
+    plt.title('SAPHIRA Settling', fontsize=20)
+    plt.xlabel('Time since readout began (hours)', fontsize=18)
+    plt.ylabel('Standard deviation (ADU) of difference \n between adjacent average frames', fontsize=18)
+    plt.xlim((0,6))
     plt.show()
+
