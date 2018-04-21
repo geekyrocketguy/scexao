@@ -59,7 +59,8 @@ if emailsent: #if the user has already been emailed:
         #send email saying the detector is cooled again and ready to use
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
-        server.login('scexaonotifier@gmail.com', 'swissplanet')
+        pw = np.loadtxt('notthepassword.txt', dtype='str')
+        server.login('scexaonotifier@gmail.com', pw)
         msg = "The SAPHIRA temperatures are\n"+ \
               " A: " + str(A[0]) + " B: " + str(B[0]) + " C: " + str(C[0]) + " D: " + str(D[0])+'\n'+\
               "Thought you might want to know. Congratulations on this news.\n\n"\
